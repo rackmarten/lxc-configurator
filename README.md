@@ -1,5 +1,7 @@
 # LXC Configurator
 
+[![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-support-FF5E5B?logo=kofi&logoColor=white)](https://ko-fi.com/rackmarten)
+
 Modular Bash provisioning and configuration for **Proxmox LXC containers**,
 for anyone running a Proxmox host who wants new and existing containers set up
 the same way every time, without one big monolithic script.
@@ -803,8 +805,12 @@ In particular:
 
 ## Support this project
 
-If LXC Configurator saves you time, you can support its development. A
-donation link will be added here soon. Bug reports, ideas and pull requests
+If LXC Configurator saves you time, you can support its development on
+[Ko-fi](https://ko-fi.com/rackmarten):
+
+[![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-support-FF5E5B?logo=kofi&logoColor=white)](https://ko-fi.com/rackmarten)
+
+Bug reports, ideas and pull requests
 are just as welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
