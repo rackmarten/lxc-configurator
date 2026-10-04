@@ -1,5 +1,10 @@
 # AGENTS.md
 
+> **This repository is public.** Everything committed here, including commit
+> messages, PR titles and descriptions, is world-readable. Read
+> "Public repository, private homelab" at the end of this file before
+> committing.
+
 ## Project Overview
 
 `lxc-configurator` is a Bash-based provisioning and configuration framework for Proxmox LXC containers.
