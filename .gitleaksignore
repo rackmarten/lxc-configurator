@@ -4,4 +4,4 @@
 # secret: a real one gets rotated and scrubbed instead.
 
 # tests/test.sh kopia-client test: dummy password "s3cr3t-kopia-pw"
-daad27797414aedaecd2c2253b5879716bb98a06:tests/test.sh:generic-api-key:415
+468b84a81081b6e76821a1fb0ca4bf230d6f4962:tests/test.sh:generic-api-key:446
