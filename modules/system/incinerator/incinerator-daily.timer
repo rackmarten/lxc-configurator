@@ -1,0 +1,11 @@
+# Installed by lxc-configurator's incinerator module (pinboard #447).
+[Unit]
+Description=incinerator daily disk cleanup
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=45m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

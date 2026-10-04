@@ -1,0 +1,18 @@
+# Example clients file for scripts/kopia-enroll.sh. Copy it to
+# kopia-clients.tsv (or anywhere, and set KOPIA_CLIENTS_FILE) and list your
+# own containers. The rows below are invented.
+#
+# Columns (tab-separated):
+#   ctid      the LXC's CTID
+#   hostname  the LXC's hostname; the Kopia identity is <hostname>@<hostname>
+#   paths     comma-separated absolute paths to snapshot
+#   exclude   comma-separated absolute paths (or globs) under those paths to
+#             skip, or "-" for none
+#
+# Exclude a live database directory and dump it into a backed-up path before
+# each snapshot instead: a file copy of a running database is not a backup.
+
+# ctid	hostname	paths	exclude
+130	wiki	/app	/app/data/postgres
+131	git-mirror	/app,/srv/repos	-
+132	monitoring	/app	/app/prometheus,/app/loki/chunks

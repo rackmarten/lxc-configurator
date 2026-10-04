@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "note": "Runs on the Proxmox host from a checkout. Nothing to deploy.",
+  "steps": []
+}

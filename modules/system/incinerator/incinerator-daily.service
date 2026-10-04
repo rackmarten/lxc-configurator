@@ -1,0 +1,10 @@
+# Installed by lxc-configurator's incinerator module (pinboard #447).
+[Unit]
+Description=incinerator daily disk cleanup
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/incinerator --daily
+SyslogIdentifier=incinerator
+Nice=19
+IOSchedulingClass=idle

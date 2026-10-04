@@ -1,0 +1,252 @@
+#!/usr/bin/env bash
+#
+# incinerator: local disk cleanup, installed on every LXC by lxc-configurator's
+# `incinerator` module (pinboard #447). Run by two systemd timers:
+#   incinerator-daily.timer     --daily     03:30 + up to 45m random delay
+#   incinerator-pressure.timer  --pressure  every 15 minutes, only acts when
+#                                           / usage >= the policy threshold
+#
+# Policy: /app/.homelab/incinerator.json (INCINERATOR_POLICY overrides the
+# path), else built-in defaults. An invalid policy file burns nothing.
+# Output: one JSON line on stdout per run (journald via SyslogIdentifier);
+# human-readable progress goes to stderr with --verbose.
+
+set -Eeuo pipefail
+
+POLICY_FILE="${INCINERATOR_POLICY:-/app/.homelab/incinerator.json}"
+LOCK_FILE="${INCINERATOR_LOCK:-/run/incinerator.lock}"
+DEFAULT_POLICY='{"version":1,"threshold":85,"docker":{"images":true,"buildCache":true,"stoppedContainers":true,"anonymousVolumes":false},"journald":null,"apt":false,"paths":[]}'
+
+pass=""
+dry_run=false
+verbose=false
+errors=()
+declare -A freed=([containers]=0 [images]=0 [buildCache]=0 [volumes]=0 [journald]=0 [apt]=0 [paths]=0)
+
+usage() {
+  echo "usage: incinerator --daily|--pressure [--dry-run] [--verbose]" >&2
+  exit 2
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --daily) pass=daily ;;
+    --pressure) pass=pressure ;;
+    --dry-run) dry_run=true ;;
+    --verbose) verbose=true ;;
+    *) usage ;;
+  esac
+  shift
+done
+[[ -n "${pass}" ]] || usage
+
+say() { if [[ "${verbose}" == true ]]; then echo "incinerator: $*" >&2; fi; }
+fail() { errors+=("$*"); echo "incinerator: error: $*" >&2; }
+
+# Percentage of / in use.
+usage_pct() { df -P / | awk 'NR == 2 { sub("%", "", $5); print $5 }'; }
+
+# "1.5GB" (docker, decimal) or "16.0M" (journalctl, binary) -> bytes.
+to_bytes() {
+  awk -v s="$1" 'BEGIN {
+    if (!match(s, /^[0-9.]+/)) { print 0; exit }
+    n = substr(s, 1, RLENGTH); u = toupper(substr(s, RLENGTH + 1))
+    base = (u ~ /^[KMGT]B$/) ? 1000 : 1024
+    p = index("KMGT", substr(u, 1, 1))
+    printf "%.0f\n", n * (u == "" || u == "B" || p == 0 ? 1 : base ^ p)
+  }'
+}
+
+# Reclaimed bytes from a docker prune's "Total reclaimed space: X" / "Total: X".
+reclaimed() { to_bytes "$(awk '/^Total/ { v = $NF } END { print v }')"; }
+
+emit() {
+  local after="${1:-}" extra="${2:-{\}}"
+  jq -cn \
+    --arg pass "${pass}" \
+    --argjson dryRun "${dry_run}" \
+    --arg policy "${policy_source:-none}" \
+    --arg before "${before:-}" \
+    --arg after "${after}" \
+    --argjson extra "${extra}" \
+    --argjson freed "$(for k in "${!freed[@]}"; do printf '%s\t%s\n' "${k}" "${freed[${k}]}"; done |
+      jq -R -n '[inputs | split("\t") | {(.[0]): (.[1] | tonumber)}] | add')" \
+    '{pass: $pass, dryRun: $dryRun, policy: $policy,
+      usageBefore: ($before | tonumber? // null), usageAfter: ($after | tonumber? // null),
+      freedBytes: $freed, freedTotal: ($freed | add), errors: $ARGS.positional} + $extra' \
+    --args ${errors[@]+"${errors[@]}"}
+}
+
+# --- policy ------------------------------------------------------------------
+
+VALIDATE='
+  def num: type == "number" and . >= 0;
+  type == "object" and .version == 1
+  and (.threshold | type == "number" and . > 0 and . <= 100)
+  and (.docker | type == "object" and all(.[]; type == "boolean"))
+  and (.journald == null or (.journald | type == "string" and test("^[0-9]+[KMG]$")))
+  and (.apt | type == "boolean")
+  and (.paths | type == "array" and all(.[];
+        type == "object"
+        and (.glob | type == "string" and test("^/[^/*?\\[]+/.") and (contains("..") | not))
+        and (.maxAgeHours | num)
+        and ((.pressureMaxAgeHours // 0) | num)
+        and ((.maxSizeMb // 0) | num)))'
+
+if [[ -e "${POLICY_FILE}" ]]; then
+  policy_source="${POLICY_FILE}"
+  if ! policy="$(jq -ce --argjson d "${DEFAULT_POLICY}" '($d * .) as $p | if ($p | '"${VALIDATE}"') then $p else error("schema") end' "${POLICY_FILE}" 2>/dev/null)"; then
+    fail "invalid policy ${POLICY_FILE}, nothing burned"
+    emit "" '{"skipped":true}'
+    exit 2
+  fi
+else
+  policy_source=builtin
+  policy="${DEFAULT_POLICY}"
+fi
+pol() { jq -r "$1" <<<"${policy}"; }
+
+exec 9>"${LOCK_FILE}"
+if ! flock -n 9; then
+  say "another run holds ${LOCK_FILE}, exiting"
+  exit 0
+fi
+
+before="$(usage_pct)"
+threshold="$(pol .threshold)"
+if [[ "${pass}" == pressure ]] && (( before < threshold )); then
+  emit "${before}" "{\"skipped\":true,\"threshold\":${threshold}}"
+  exit 0
+fi
+say "${pass} pass, / at ${before}%, policy ${policy_source}"
+
+# run <category> <cmd...>: leaves the command's output in $out. Not run in a
+# subshell, so a failure lands in errors[].
+run() {
+  say "+ ${*:2}"
+  out=""
+  [[ "${dry_run}" == true ]] && return 0
+  local rc=0
+  out="$("${@:2}" 2>&1)" || rc=$?
+  (( rc == 0 )) || fail "$1: '${*:2}' exited ${rc}"
+}
+
+now="$(date +%s)"
+
+# --- docker ------------------------------------------------------------------
+
+if command -v docker >/dev/null 2>&1; then
+  if [[ "$(pol .docker.stoppedContainers)" == true ]]; then
+    min_age=0
+    [[ "${pass}" == daily ]] && min_age=$(( 24 * 3600 ))
+    mapfile -t ids < <(docker ps -aq --filter status=exited --filter status=dead)
+    if (( ${#ids[@]} )); then
+      while read -r id finished size; do
+        [[ -n "${id}" ]] || continue
+        ts="$(date -d "${finished}" +%s 2>/dev/null || echo 0)"
+        (( now - ts >= min_age )) || continue
+        say "container ${id:0:12} stopped ${finished}"
+        if [[ "${dry_run}" == true ]] || docker rm "${id}" >/dev/null 2>&1; then
+          freed[containers]=$(( freed[containers] + ${size:-0} ))
+        else
+          fail "containers: docker rm ${id:0:12} failed"
+        fi
+      done < <(docker inspect --size -f '{{.Id}} {{.State.FinishedAt}} {{.SizeRw}}' "${ids[@]}")
+    fi
+  fi
+
+  if [[ "$(pol .docker.images)" == true ]]; then
+    # -a: everything not used by an existing container, no rollback images.
+    run images docker image prune -a -f
+    freed[images]="$(reclaimed <<<"${out}")"
+  fi
+
+  if [[ "$(pol .docker.buildCache)" == true ]]; then
+    filter=()
+    [[ "${pass}" == daily ]] && filter=(--filter until=72h)
+    run buildCache docker builder prune -a -f "${filter[@]}"
+    freed[buildCache]="$(reclaimed <<<"${out}")"
+  fi
+
+  if [[ "$(pol .docker.anonymousVolumes)" == true ]]; then
+    # Only dangling volumes with a generated 64-hex name. Named volumes are
+    # never touched, whatever the docker version's `volume prune` default.
+    while read -r vol; do
+      [[ "${vol}" =~ ^[0-9a-f]{64}$ ]] || continue
+      mp="$(docker volume inspect -f '{{.Mountpoint}}' "${vol}" 2>/dev/null || true)"
+      size="$( { du -sb "${mp}" 2>/dev/null || echo 0; } | awk '{ print $1; exit }')"
+      say "anonymous volume ${vol:0:12}"
+      if [[ "${dry_run}" == true ]] || docker volume rm "${vol}" >/dev/null 2>&1; then
+        freed[volumes]=$(( freed[volumes] + size ))
+      else
+        fail "volumes: docker volume rm ${vol:0:12} failed"
+      fi
+    done < <(docker volume ls -q --filter dangling=true)
+  fi
+else
+  say "docker not installed, skipping docker"
+fi
+
+# --- journald / apt ----------------------------------------------------------
+
+journald="$(pol '.journald // empty')"
+if [[ -n "${journald}" ]]; then
+  run journald journalctl --vacuum-size="${journald}"
+  freed[journald]="$(to_bytes "$(sed -n 's/.*freed \([0-9.]*[KMGT]\?\).*/\1/p' <<<"${out}" | tail -n1)")"
+fi
+
+if [[ "$(pol .apt)" == true ]]; then
+  apt_size() { du -sb /var/cache/apt/archives 2>/dev/null | awk '{ print $1 }' || echo 0; }
+  a="$(apt_size)"
+  run apt apt-get clean
+  [[ "${dry_run}" == true ]] || freed[apt]=$(( ${a:-0} - $(apt_size || echo 0) ))
+fi
+
+# --- paths -------------------------------------------------------------------
+
+burn() {
+  local path="$1" size="$2"
+  say "path ${path} (${size} bytes)"
+  if [[ "${dry_run}" == true ]] || rm -rf -- "${path}"; then
+    freed[paths]=$(( freed[paths] + size ))
+  else
+    fail "paths: rm ${path} failed"
+  fi
+}
+
+shopt -s nullglob
+count="$(pol '.paths | length')"
+for (( i = 0; i < count; i++ )); do
+  glob="$(pol ".paths[${i}].glob")"
+  age="$(pol ".paths[${i}].maxAgeHours")"
+  [[ "${pass}" == pressure ]] && age="$(pol ".paths[${i}] | .pressureMaxAgeHours // .maxAgeHours")"
+  max_mb="$(pol ".paths[${i}].maxSizeMb // empty")"
+  cutoff=$(( now - ${age%.*} * 3600 ))
+  # mtime<TAB>size<TAB>path for survivors of the age rule, oldest first.
+  kept=()
+  # shellcheck disable=SC2206  # the glob is meant to expand here.
+  entries=(${glob})
+  for path in "${entries[@]}"; do
+    [[ -e "${path}" || -L "${path}" ]] || continue
+    mtime="$(stat -c %Y -- "${path}")"
+    size="$(du -sb -- "${path}" | awk '{ print $1; exit }')"
+    if (( mtime < cutoff )); then
+      burn "${path}" "${size}"
+    else
+      kept+=("${mtime}"$'\t'"${size}"$'\t'"${path}")
+    fi
+  done
+  if [[ -n "${max_mb}" ]] && (( ${#kept[@]} )); then
+    limit=$(( ${max_mb%.*} * 1024 * 1024 ))
+    total=0
+    for k in "${kept[@]}"; do total=$(( total + $(cut -f2 <<<"${k}") )); done
+    while IFS=$'\t' read -r _ size path; do
+      (( total > limit )) || break
+      burn "${path}" "${size}"
+      total=$(( total - size ))
+    done < <(printf '%s\n' "${kept[@]}" | sort -n -k1,1)
+  fi
+done
+
+emit "$(usage_pct)"
+(( ${#errors[@]} == 0 )) || exit 1

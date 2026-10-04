@@ -1,0 +1,50 @@
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Local configuration
+docker-compose.override.yml
+*.local
+*.local.*
+
+# Dependencies
+node_modules/
+vendor/
+
+# Build output
+dist/
+build/
+coverage/
+
+# Logs
+*.log
+logs/
+
+# Runtime data
+tmp/
+temp/
+.cache/
+
+# IDE
+.idea/
+.vscode/*
+!.vscode/settings.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Secrets and credentials
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# foreman creates an agent's git worktree at .claude/worktrees/<name> inside
+# whichever repo it is working on (see foreman's runner.ts worktreePath), so a
+# plain `git add -A` would otherwise commit a gitlink to a throwaway worktree.
+# The worktree is swept a day later, so what stays behind is a repo pointing at
+# something that no longer exists.
+.claude/worktrees/

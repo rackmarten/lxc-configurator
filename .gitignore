@@ -1,0 +1,25 @@
+.env
+output/
+
+# editor and temporary files
+*.swp
+*.swo
+*.tmp
+.DS_Store
+.vscode/
+!templates/work-dir/.vscode/
+.idea/
+
+# generated files
+generated/*.sh
+!generated/.gitkeep
+
+# foreman creates an agent's git worktree at .claude/worktrees/<name> inside
+# whichever repo it is working on (see foreman's runner.ts worktreePath), so a
+# plain `git add -A` would otherwise commit a gitlink to a throwaway worktree.
+# The worktree is swept a day later, so what stays behind is a repo pointing at
+# something that no longer exists.
+.claude/worktrees/
+
+# Local Kopia clients file for scripts/kopia-enroll.sh (copy of kopia-clients.tsv.example)
+kopia-clients.tsv

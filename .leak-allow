@@ -1,0 +1,9 @@
+# Leak-check exceptions: <path-glob>:<id>. Only for functional configuration
+# (module names, settings, scaffolding), never for prose; see AGENTS.md
+# "Public repository, private homelab".
+templates/work-dir/.github/workflows/security-check.yml:P04
+modules/observability/*:P14
+modules/tailscale/*:P16
+.env.example:P16
+.env.example:P06
+.leak-allow:P14

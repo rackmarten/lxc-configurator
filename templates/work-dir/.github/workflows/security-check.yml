@@ -1,0 +1,10 @@
+name: Security & syntax checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  checks:
+    uses: uncik-homelab/.github/.github/workflows/security-check.yml@main

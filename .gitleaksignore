@@ -1,0 +1,7 @@
+# Known false positives, one gitleaks fingerprint per line (commit:file:rule:line).
+# The secret scan reads the whole history, so a finding in an old commit stays
+# red until it is listed here. Only add a fixture or dummy value, never a real
+# secret: a real one gets rotated and scrubbed instead.
+
+# tests/test.sh kopia-client test: dummy password "s3cr3t-kopia-pw"
+daad27797414aedaecd2c2253b5879716bb98a06:tests/test.sh:generic-api-key:415

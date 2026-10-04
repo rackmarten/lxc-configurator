@@ -1,0 +1,10 @@
+# Installed by lxc-configurator's incinerator module (pinboard #447).
+[Unit]
+Description=incinerator pressure disk cleanup
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/incinerator --pressure
+SyslogIdentifier=incinerator
+Nice=19
+IOSchedulingClass=idle

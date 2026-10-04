@@ -1,0 +1,10 @@
+# Installed by lxc-configurator's incinerator module (pinboard #447).
+# The service exits at once unless / usage is at or above the policy threshold.
+[Unit]
+Description=incinerator disk pressure check every 15 minutes
+
+[Timer]
+OnCalendar=*:0/15
+
+[Install]
+WantedBy=timers.target
