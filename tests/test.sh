@@ -204,11 +204,11 @@ if [[ "${migration_dry_run_output}" != *"test-key"* ]]; then
 else
   fail "migration dry-run does not leak SSH_PUBLIC_KEY from .env"
 fi
-assert_contains "migration dry-run reports the key as unavailable" "${migration_dry_run_output}" "GitHub SSH public key: unavailable in dry run."
-if [[ "${migration_dry_run_output}" != *"Add the SSH public key to GitHub"* ]]; then
-  pass "migration dry-run does not suggest adding a key that wasn't found"
+assert_contains "migration dry-run reports the key as unavailable" "${migration_dry_run_output}" "Personal SSH public key: unavailable in dry run."
+if [[ "${migration_dry_run_output}" != *"to GitHub"* ]]; then
+  pass "migration report does not ask for the key to be added to GitHub"
 else
-  fail "migration dry-run does not suggest adding a key that wasn't found"
+  fail "migration report does not ask for the key to be added to GitHub"
 fi
 assert_contains "migration report uses the --user override, not the stale USER_NAME env value" \
   "$(run_migrate 250 minimal --user alice --hostname test-host --dry-run)" \

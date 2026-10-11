@@ -602,6 +602,39 @@ or explicitly:
 
 An existing repository is preserved.
 
+### Deploying by push
+
+A new container does not need GitHub access, and nothing in the configurator
+asks for it. The `user` module still generates a personal SSH key
+(`~/.ssh/id_ed25519`) for the primary user, and `migrate`/`info` print its
+public half, but that key is for whatever else the container has to reach. It
+does not need to be added to GitHub, and the project is not cloned over SSH
+inside the container.
+
+Instead, the working directory is a Git repository that receives pushes, and
+the first push seeds it. Inside the container, once (with `--git`, or by hand):
+
+```bash
+git -C /app init
+git -C /app config receive.denyCurrentBranch updateInstead
+```
+
+From a workstation that has the project checked out:
+
+```bash
+git remote add lxc <user>@<hostname>:/app
+git push lxc main
+ssh <user>@<hostname> 'cd /app && ./scripts/deploy.sh'
+```
+
+`updateInstead` makes the push update the checked-out files as well, and Git
+refuses the push if the working tree in the container has uncommitted changes
+to tracked files, so local edits there are never overwritten silently.
+Untracked files such as `.env` and bind-mounted data stay where they are.
+Later deploys are the same push followed by `./scripts/deploy.sh`; the
+container never runs `git pull`. The scaffold module does not set
+`receive.denyCurrentBranch` itself.
+
 ## Incinerator
 
 The `incinerator` module installs a local disk cleanup: `/usr/local/sbin/incinerator` (bash + jq; the module installs `jq`) and the systemd units `incinerator-daily.timer` (03:30 plus up to 45 minutes random delay) and `incinerator-pressure.timer` (every 15 minutes). Sources live in `modules/system/incinerator/`. Files are only rewritten when their content changed, so re-running the module is a no-op on an up-to-date guest.

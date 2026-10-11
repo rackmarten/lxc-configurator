@@ -8,6 +8,16 @@ release boundary to version against. See `homelab/AGENTS.md`'s "Where
 project knowledge goes" for what belongs here versus a repo's own pinboard
 project tasks/context.
 
+## 2026-10-11
+
+### Changed
+- The `migrate`/`info` summary no longer asks to add the personal SSH key to
+  GitHub. It labels it as a personal key and points at the new README section
+  "Deploying by push": the working directory receives a `git push` from a
+  workstation (`receive.denyCurrentBranch=updateInstead`), so a container needs
+  no GitHub access. The scaffolded README.md and AGENTS.md describe the same
+  flow. The `user` module still generates the key.
+
 ## 2026-10-03
 
 ### Added
