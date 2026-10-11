@@ -28,7 +28,7 @@ Do not run a recursive `chown` on `${WORK_DIR}`. Some bind-mounted data director
 
 ## Deployment
 
-Run:
+Code reaches `${WORK_DIR}` by `git push` from a workstation, not by cloning or pulling inside the container, so the container needs no GitHub access. Set `git config receive.denyCurrentBranch updateInstead` in `${WORK_DIR}` once, so a push updates the checked-out files. After a push, run:
 
     ./scripts/deploy.sh
 

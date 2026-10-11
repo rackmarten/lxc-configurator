@@ -33,6 +33,8 @@ Never run a recursive `chown` (e.g. `chown -R ${USER_NAME}:${USER_NAME} ${WORK_D
 
 Do not deploy changes automatically unless explicitly requested.
 
+Code arrives here by `git push` from a workstation into `${WORK_DIR}`, which is configured with `receive.denyCurrentBranch=updateInstead`. Do not run `git pull` here or set up GitHub access from inside the container to deploy.
+
 Use:
 
     ./scripts/deploy.sh

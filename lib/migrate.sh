@@ -114,7 +114,7 @@ migration_print_public_key() {
   [[ -n "${user_name}" ]] || return 1
 
   if dry_run_enabled; then
-    printf '%s\n' '' 'GitHub SSH public key: unavailable in dry run.'
+    printf '%s\n' '' 'Personal SSH public key: unavailable in dry run.'
     return 1
   fi
 
@@ -135,7 +135,7 @@ migration_print_public_key() {
   fi
 
   if [[ -n "${public_key}" ]]; then
-    printf '%s\n' '' 'GitHub SSH public key' '---------------------' '' "${public_key}"
+    printf '%s\n' '' 'Personal SSH public key' '-----------------------' '' "${public_key}"
     return 0
   fi
 
@@ -144,8 +144,8 @@ migration_print_public_key() {
 }
 
 # Prints the connection/Git/verification/next-steps summary for an LXC:
-# SSH command, VS Code Remote SSH project-manager entry, and the personal
-# GitHub SSH public key. Pure read-only reporting - callers that already
+# SSH command, VS Code Remote SSH project-manager entry, and the user's
+# personal SSH public key. Pure read-only reporting - callers that already
 # made changes (migrate) print their own status line first; callers that
 # only want a read-only report (create, info) can call this directly.
 lxc_print_summary() {
@@ -161,7 +161,6 @@ lxc_print_summary() {
   local has_work_dir=false
   local user_name=""
   local work_dir=""
-  local key_found=false
 
   while IFS= read -r module; do
     case "${module}" in
@@ -199,18 +198,17 @@ lxc_print_summary() {
     esac
   done < <(migration_profile_modules "${profile_file}")
 
-  if migration_print_public_key "${ctid}" "${user_name}"; then
-    key_found=true
-  fi
+  # A missing key is already reported in the output; it is not an error here.
+  migration_print_public_key "${ctid}" "${user_name}" || true
   printf '%s\n' '' 'Next steps' '----------'
   local step=1
-  if [[ "${key_found}" == true ]]; then
-    printf '[%d] Add the SSH public key to GitHub.\n' "${step}"; step=$((step + 1))
-  fi
   if [[ "${hostname}" != unavailable && -n "${user_name}" ]]; then
     printf '[%d] Connect using: ssh %s@%s\n' "${step}" "${user_name}" "${hostname}"; step=$((step + 1))
   fi
-  [[ -n "${work_dir}" ]] && printf '[%d] Review %s and restore application data as required.\n' "${step}" "${work_dir}"
+  if [[ -n "${work_dir}" ]]; then
+    printf '[%d] Push the project into %s from your workstation (see README "Deploying by push"); the LXC needs no GitHub access.\n' "${step}" "${work_dir}"; step=$((step + 1))
+    printf '[%d] Review %s and restore application data as required.\n' "${step}" "${work_dir}"
+  fi
 }
 
 migration_print_report() {
