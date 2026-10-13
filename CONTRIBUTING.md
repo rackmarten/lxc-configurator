@@ -64,5 +64,14 @@ Keep commits focused, and start the subject with one of these prefixes:
 
 For example: `Add: kvm module for nested virtualization`.
 
+## Changelog and releases
+
+Add a line for every user-visible change under `## [Unreleased]` in
+`CHANGELOG.md` ([Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
+format). Releases follow [Semantic Versioning](https://semver.org/) and are
+cut by the maintainer: bump `CONFIGURATOR_VERSION`, move Unreleased to a
+versioned heading, update the links and tag `vx.y.z`. A pull request never
+bumps the version itself.
+
 By contributing, you agree that your contributions are licensed under the
 [MIT License](LICENSE).

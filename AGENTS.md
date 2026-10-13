@@ -856,6 +856,18 @@ Planned
 Experimental
 ```
 
+## Changelog and releases
+
+`CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
+and [Semantic Versioning](https://semver.org/). Record every user-visible
+change under `## [Unreleased]`, in the matching Added/Changed/Fixed/Removed
+group. Never add a dated heading.
+
+Releases are cut by the maintainer on request, never as part of an ordinary
+change: bump `CONFIGURATOR_VERSION` in `configurator.sh`, move the Unreleased
+entries to `## [x.y.z] - <date>`, update the compare/tag links at the bottom,
+merge, then tag `vx.y.z`.
+
 ---
 
 # Change Strategy
