@@ -10,6 +10,13 @@ MODULE_DEPENDS=()
 configure_tailscale() {
     local ctid="${1:-}"
 
+    _tailscale_configure "${ctid}" || return
+    guest_docker_wait_for_tailscale_dns "${ctid}"
+}
+
+_tailscale_configure() {
+    local ctid="${1:-}"
+
     if [[ -z "${ctid}" ]]; then
         log_error "Tailscale configuration requires a CTID."
         return 2

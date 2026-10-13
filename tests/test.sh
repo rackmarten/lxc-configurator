@@ -313,6 +313,52 @@ if [[ "$(mock_operations)" != *"/etc/hosts"* ]]; then
 else
   fail "tailscale leaves /etc/hosts alone without a LAN IP"
 fi
+
+# docker + tailscale: docker.service waits (bounded) for tailscale's resolver
+# on boot, so containers don't copy the pre-tailscale upstreams.
+dns_dropin="${GUEST_DOCKER_TAILSCALE_DNS_DROPIN}"
+assert_contains "both modules install the docker DNS drop-in" \
+  "$(: > "${MOCK_OPERATIONS_FILE}"; run_module docker 250 --dry-run >/dev/null; run_module tailscale 250 --dry-run >/dev/null; mock_operations)" \
+  "mkdir -p ${dns_dropin%/*}"
+dns_dropin_ops() {
+  # shellcheck disable=SC2317,SC2329  # Stub invoked indirectly by the helper.
+  guest_command_exists() { [[ " ${DNS_TEST_COMMANDS} " == *" ${2:-} "* ]]; }
+  : > "${MOCK_OPERATIONS_FILE}"
+  guest_docker_wait_for_tailscale_dns 250 >/dev/null
+  mock_operations
+}
+DNS_TEST_COMMANDS="docker"
+dns_ops="$(dns_dropin_ops)"
+if [[ "${dns_ops}" != *"${dns_dropin}"* && ! -e "${MOCK_GUEST_FS}${dns_dropin}" ]]; then
+  pass "docker without tailscale gets no DNS drop-in"
+else
+  fail "docker without tailscale gets no DNS drop-in"
+fi
+DNS_TEST_COMMANDS="tailscale"
+dns_ops="$(dns_dropin_ops)"
+if [[ "${dns_ops}" != *"${dns_dropin}"* && ! -e "${MOCK_GUEST_FS}${dns_dropin}" ]]; then
+  pass "tailscale without docker gets no DNS drop-in"
+else
+  fail "tailscale without docker gets no DNS drop-in"
+fi
+DNS_TEST_COMMANDS="docker tailscale"
+dns_ops="$(dns_dropin_ops)"
+assert_contains "docker + tailscale reloads systemd after writing the drop-in" "${dns_ops}" "systemctl daemon-reload"
+dns_content="$(cat "${MOCK_GUEST_FS}${dns_dropin}")"
+assert_contains "the drop-in orders Docker after tailscaled" "${dns_content}" "After=tailscaled.service"
+assert_contains "the drop-in pulls in tailscaled" "${dns_content}" "Wants=tailscaled.service"
+assert_contains "the drop-in waits for tailscale's resolver" "${dns_content}" "nameserver 100.100.100.100"
+assert_contains "the drop-in starts Docker anyway after the timeout" "${dns_content}" "starting Docker anyway.\"; exit 0'"
+dns_script="$(sed -n "s/^ExecStartPre=\/bin\/sh -c '\(.*\)'$/\1/p" <<< "${dns_content}")"
+assert_success "the drop-in's wait script is valid sh once systemd unescapes it" sh -n -c "${dns_script//\$\$/\$}"
+dns_ops="$(dns_dropin_ops)"
+if [[ "${dns_ops}" != *"daemon-reload"* && "${dns_ops}" != *"cat > "* ]]; then
+  pass "a second run leaves an up-to-date drop-in alone"
+else
+  fail "a second run leaves an up-to-date drop-in alone"
+fi
+unset DNS_TEST_COMMANDS dns_ops dns_content dns_script
+unset -f dns_dropin_ops
 assert_failure "missing module option value fails" run_module work-dir 250 --path
 assert_failure "unknown module option fails" run_module user 250 --does-not-exist
 

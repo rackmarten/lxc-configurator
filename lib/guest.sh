@@ -181,3 +181,66 @@ guest_file_write() {
   # shellcheck disable=SC2016  # '$1' is expanded by the guest's sh, not this shell.
   guest_exec "${ctid}" sh -c 'cat > "$1"' sh "${file}" <<< "${content}"
 }
+
+# Docker copies the guest's /etc/resolv.conf into its containers when they
+# start. On boot docker.service can win the race against tailscaled, so the
+# containers keep the pre-tailscale upstreams and cannot resolve MagicDNS
+# names until restarted. This drop-in makes Docker wait (bounded) for
+# tailscale's resolver; it starts Docker either way, so a tailscale outage
+# never keeps the containers down. Only installed when both are present;
+# called from the docker and tailscale modules so the order they run in
+# does not matter.
+GUEST_DOCKER_TAILSCALE_DNS_DROPIN="/etc/systemd/system/docker.service.d/10-wait-tailscale-dns.conf"
+GUEST_DOCKER_TAILSCALE_DNS_TIMEOUT=90
+
+guest_docker_tailscale_dns_dropin_content() {
+  local timeout="${GUEST_DOCKER_TAILSCALE_DNS_TIMEOUT}"
+
+  # `$$` is systemd's escape for a literal `$` passed through to sh.
+  cat <<UNIT
+# Managed by lxc-configurator: start Docker only once tailscale has taken
+# over DNS (or after ${timeout}s), so containers copy tailscale's resolver.
+[Unit]
+After=tailscaled.service
+Wants=tailscaled.service
+
+[Service]
+ExecStartPre=/bin/sh -c 'i=0; while [ "\$\$i" -lt ${timeout} ]; do if grep -qF "nameserver 100.100.100.100" /etc/resolv.conf; then echo "Tailscale DNS active after \$\${i}s, starting Docker."; exit 0; fi; i=\$\$((i + 1)); sleep 1; done; echo "Tailscale DNS not active after ${timeout}s, starting Docker anyway."; exit 0'
+UNIT
+}
+
+guest_docker_wait_for_tailscale_dns() {
+  local ctid="${1:-}"
+  local dropin="${GUEST_DOCKER_TAILSCALE_DNS_DROPIN}"
+  local content current
+
+  if [[ -z "${ctid}" ]]; then
+    printf '%s\n' "guest_docker_wait_for_tailscale_dns: CTID is required." >&2
+    return 2
+  fi
+
+  if ! guest_command_exists "${ctid}" docker || ! guest_command_exists "${ctid}" tailscale; then
+    return 0
+  fi
+
+  content="$(guest_docker_tailscale_dns_dropin_content)"
+  current="$(guest_file_read "${ctid}" "${dropin}" 2>/dev/null)" || current=""
+
+  if [[ "${current}" == "${content}" ]]; then
+    log_info "Docker already waits for Tailscale DNS on boot."
+    return 0
+  fi
+
+  log_info "Making Docker wait for Tailscale DNS on boot..."
+
+  if ! guest_exec "${ctid}" mkdir -p "${dropin%/*}" ||
+    ! guest_file_write "${ctid}" "${dropin}" "${content}" ||
+    ! guest_exec "${ctid}" systemctl daemon-reload; then
+    log_error "Failed to install ${dropin} in LXC ${ctid}."
+    return 1
+  fi
+
+  # No restart: running containers keep working, the drop-in matters on the
+  # next boot.
+  log_success "Docker waits for Tailscale DNS on boot (takes effect on next restart)."
+}

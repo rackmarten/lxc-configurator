@@ -9,6 +9,15 @@ The version is `CONFIGURATOR_VERSION` in `configurator.sh`.
 
 ## [Unreleased]
 
+### Fixed
+- Docker no longer starts containers before Tailscale has taken over DNS on
+  boot, which left them with the pre-Tailscale upstreams and unable to
+  resolve MagicDNS names until restarted. When a guest has both Docker and
+  Tailscale, the `docker` and `tailscale` modules install a `docker.service`
+  drop-in (`10-wait-tailscale-dns.conf`) that orders Docker after
+  `tailscaled` and waits up to 90s for `nameserver 100.100.100.100` in
+  `/etc/resolv.conf`, then starts Docker either way.
+
 ## [0.1.0] - 2026-10-04
 
 First public release.
