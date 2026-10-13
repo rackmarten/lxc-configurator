@@ -9,6 +9,11 @@ The version is `CONFIGURATOR_VERSION` in `configurator.sh`.
 
 ## [Unreleased]
 
+### Changed
+- `.env.example` names foreman's own SSH key by fingerprint under
+  `SSH_PUBLIC_KEY`, so a new container authorizes it next to the operator's
+  key from the start.
+
 ### Fixed
 - Docker no longer starts containers before Tailscale has taken over DNS on
   boot, which left them with the pre-Tailscale upstreams and unable to
