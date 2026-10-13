@@ -54,7 +54,7 @@ See [CLI](#cli) for every command.
 | --- | --- |
 | `alloy` | Install Grafana Alloy (ships the guest's journal and Docker logs to Loki) |
 | `base` | Install base system packages |
-| `docker` | Install Docker |
+| `docker` | Install Docker (and, with `tailscale`, make it wait for Tailscale DNS on boot) |
 | `incinerator` | Install a local disk cleanup with daily and disk-pressure timers |
 | `kopia-client` | Install and register a Kopia backup client |
 | `kvm` | Pass `/dev/kvm` through for hardware-accelerated nested virtualization |
@@ -63,7 +63,7 @@ See [CLI](#cli) for every command.
 | `secrets-guard` | Scan the project for secrets and extend `.gitignore`/`.claude/settings.json` |
 | `shell` | Configure the shell environment |
 | `ssh` | Configure SSH security |
-| `tailscale` | Configure Tailscale |
+| `tailscale` | Configure Tailscale (and, with `docker`, make Docker wait for Tailscale DNS on boot) |
 | `tun` | Configure TUN device access |
 | `unattended-upgrades` | Configure unattended upgrades |
 | `user` | Configure the primary user, groups, shell, SSH key and Git identity |
@@ -634,6 +634,21 @@ Untracked files such as `.env` and bind-mounted data stay where they are.
 Later deploys are the same push followed by `./scripts/deploy.sh`; the
 container never runs `git pull`. The scaffold module does not set
 `receive.denyCurrentBranch` itself.
+
+## Docker and Tailscale DNS on boot
+
+Docker copies the guest's `/etc/resolv.conf` into each container when it starts. On boot, `docker.service` can start the containers before `tailscaled` has switched `/etc/resolv.conf` to Tailscale's resolver (`100.100.100.100`), and those containers then keep the previous upstream servers and cannot resolve MagicDNS names until they are restarted.
+
+When a guest has both Docker and Tailscale, the `docker` and `tailscale` modules (whichever runs, in either order) install `/etc/systemd/system/docker.service.d/10-wait-tailscale-dns.conf` and run `systemctl daemon-reload`. The drop-in orders Docker after `tailscaled.service` (`After=`/`Wants=`) and adds an `ExecStartPre` that waits up to 90 seconds for `/etc/resolv.conf` to list `nameserver 100.100.100.100`. It starts Docker either way, so a Tailscale outage never keeps the containers down; the journal (`journalctl -u docker`) says which way it went. Docker is not restarted when the drop-in is installed, it takes effect on the next boot. Re-running either module leaves an up-to-date drop-in alone. A guest with only one of the two gets nothing.
+
+To add it to an existing container that already has both:
+
+```bash
+./configurator.sh module docker 250 --dry-run
+./configurator.sh module docker 250
+```
+
+If Tailscale runs with `--accept-dns=false`, `/etc/resolv.conf` never changes and Docker starts 90 seconds late on every boot.
 
 ## Incinerator
 

@@ -69,5 +69,7 @@ EOF
         guest_exec "${ctid}" systemctl start docker >/dev/null 2>&1
     fi
 
+    guest_docker_wait_for_tailscale_dns "${ctid}" || return 1
+
     log_success "Docker configured for LXC ${ctid}."
 }
