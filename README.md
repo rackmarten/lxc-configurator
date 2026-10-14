@@ -55,6 +55,7 @@ See [CLI](#cli) for every command.
 | `alloy` | Install Grafana Alloy (ships the guest's journal and Docker logs to Loki) |
 | `base` | Install base system packages |
 | `docker` | Install Docker (and, with `tailscale`, make it wait for Tailscale DNS on boot) |
+| `docker-mirror` | Point Docker at a registry mirror (`DOCKER_REGISTRY_MIRROR`) |
 | `incinerator` | Install a local disk cleanup with daily and disk-pressure timers |
 | `kopia-client` | Install and register a Kopia backup client |
 | `kvm` | Pass `/dev/kvm` through for hardware-accelerated nested virtualization |
@@ -649,6 +650,28 @@ To add it to an existing container that already has both:
 ```
 
 If Tailscale runs with `--accept-dns=false`, `/etc/resolv.conf` never changes and Docker starts 90 seconds late on every boot.
+
+## Docker registry mirror
+
+Set `DOCKER_REGISTRY_MIRROR` in `.env` (or pass `--mirror <url>`) to point each guest's Docker daemon at a registry mirror, such as a pull-through cache that keeps a shared public IP under Docker Hub's anonymous rate limit. The value is `http(s)://host[:port]`, no path. Empty (the default) makes the module a no-op, and it also skips a guest without Docker.
+
+The `docker-mirror` module, which runs right after `docker` in the default profile:
+
+1. Reads `/etc/docker/daemon.json` (missing or empty counts as `{}`) and adds the mirror to `registry-mirrors`. Every other key stays, including mirrors already listed. An `http://` mirror's `host:port` also goes into `insecure-registries`, since Docker only talks plain HTTP to registries listed there. A file that is not valid JSON is reported and left unchanged.
+2. Writes the file only when that changed something, so re-running it with the same value is a no-op.
+3. Reloads Docker (`systemctl reload docker`, a SIGHUP) when `docker info` does not list the mirror yet. Running containers are not restarted. It then checks `docker info` again and fails if the mirror is still missing.
+
+`--dry-run` prints the keys it would merge in (against an empty file, since a dry run reads nothing from the guest).
+
+To roll it out to existing containers, set `DOCKER_REGISTRY_MIRROR` in `.env` and run this on the Proxmox host from the configurator checkout. It covers every running container; ones without Docker are skipped. Add `--dry-run` after `"${ctid}"` for a preview first.
+
+```bash
+for ctid in $(pct list | awk 'NR > 1 && $2 == "running" { print $1 }'); do
+  ./configurator.sh module docker-mirror "${ctid}" || echo "docker-mirror failed for ${ctid}" >&2
+done
+```
+
+Running containers keep the image they already have; only new pulls go through the mirror. Docker falls back to the upstream registry when the mirror is unreachable.
 
 ## Incinerator
 

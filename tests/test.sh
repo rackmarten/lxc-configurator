@@ -98,7 +98,7 @@ validate_generated_fixture() {
 assert_success "generated script validates" validate_generated_fixture
 rm -rf "${generated_fixture_dir}"
 
-expected_modules=$'alloy\nbase\ndocker\nincinerator\nkopia-client\nkvm\nlocale\nscaffold\nsecrets-guard\nshell\nssh\ntailscale\ntun\nunattended-upgrades\nuser\nwork-dir'
+expected_modules=$'alloy\nbase\ndocker\ndocker-mirror\nincinerator\nkopia-client\nkvm\nlocale\nscaffold\nsecrets-guard\nshell\nssh\ntailscale\ntun\nunattended-upgrades\nuser\nwork-dir'
 assert_equal "module discovery is sorted by name" "${expected_modules}" "$(list_modules)"
 module_metadata_output="$(list_module_metadata)"
 assert_contains "module metadata includes user description" "${module_metadata_output}" "$(printf '%-22s %s' user 'Configure the primary user, groups, shell, SSH key and Git identity')"
@@ -480,6 +480,73 @@ if command -v jq >/dev/null 2>&1; then
   unset DRY_RUN
 else
   printf '[SKIP] secrets-guard dynamic settings.json merge tests (jq not installed on this machine)\n' >&2
+fi
+
+# docker-mirror: URL validation, the daemon.json merge, and a module run
+# through the mock guest filesystem.
+# shellcheck source=modules/packages/docker-mirror.sh disable=SC1091
+source "${ROOT_DIR}/modules/packages/docker-mirror.sh"
+assert_success "docker-mirror accepts an http mirror with a port" _docker_mirror_validate "http://10.0.0.42:5000"
+assert_success "docker-mirror accepts an https mirror" _docker_mirror_validate "https://mirror.example.com"
+assert_failure "docker-mirror rejects a mirror without a scheme" _docker_mirror_validate "10.0.0.42:5000"
+assert_failure "docker-mirror rejects a mirror with a path" _docker_mirror_validate "http://10.0.0.42:5000/v2"
+assert_failure "docker-mirror rejects shell metacharacters" _docker_mirror_validate 'http://x;rm -rf /'
+assert_equal "docker-mirror marks an http mirror insecure" "10.0.0.42:5000" "$(_docker_mirror_insecure_entry "http://10.0.0.42:5000")"
+assert_equal "docker-mirror leaves an https mirror secure" "" "$(_docker_mirror_insecure_entry "https://mirror.example.com")"
+
+if command -v jq >/dev/null 2>&1; then
+  _compact() { jq -cS . <<< "$1"; }
+  docker_mirror_url="http://10.0.0.42:5000"
+  assert_equal "docker-mirror merges into an empty file" \
+    '{"insecure-registries":["10.0.0.42:5000"],"registry-mirrors":["http://10.0.0.42:5000"]}' \
+    "$(_compact "$(_docker_mirror_merge "" "${docker_mirror_url}")")"
+  assert_equal "docker-mirror keeps existing keys and mirrors" \
+    '{"insecure-registries":["10.0.0.42:5000"],"log-driver":"local","registry-mirrors":["https://other.example.com","http://10.0.0.42:5000"],"runtimes":{"nvidia":{"path":"nvidia-container-runtime"}}}' \
+    "$(_compact "$(_docker_mirror_merge '{"log-driver":"local","runtimes":{"nvidia":{"path":"nvidia-container-runtime"}},"registry-mirrors":["https://other.example.com"]}' "${docker_mirror_url}")")"
+  docker_mirror_present='{"registry-mirrors":["http://10.0.0.42:5000"],"insecure-registries":["10.0.0.42:5000"]}'
+  assert_equal "docker-mirror leaves an already-present mirror alone" \
+    "$(_compact "${docker_mirror_present}")" "$(_compact "$(_docker_mirror_merge "${docker_mirror_present}" "${docker_mirror_url}")")"
+  assert_equal "docker-mirror adds no insecure entry for https" \
+    '{"registry-mirrors":["https://mirror.example.com"]}' \
+    "$(_compact "$(_docker_mirror_merge "{}" "https://mirror.example.com")")"
+  assert_failure "docker-mirror refuses to merge into invalid JSON" _docker_mirror_merge '{"log-driver":' "${docker_mirror_url}"
+
+  guest_command_exists() { return 0; }
+  _docker_mirror_active() { return 0; }
+  docker_mirror_file="${MOCK_GUEST_FS}${DOCKER_MIRROR_DAEMON_JSON}"
+  mkdir -p "${docker_mirror_file%/*}"
+  printf '{"log-driver": "local"}\n' > "${docker_mirror_file}"
+  DRY_RUN=false
+  : > "${MOCK_OPERATIONS_FILE}"
+  DOCKER_REGISTRY_MIRROR="${docker_mirror_url}" configure_docker_mirror 250 >/dev/null
+  # shellcheck disable=SC2016  # Literal guest_file_write command line, not an expansion.
+  assert_contains "docker-mirror first run writes daemon.json" \
+    "$(mock_operations)" 'cat > "$1" sh '"${DOCKER_MIRROR_DAEMON_JSON}"
+  assert_equal "docker-mirror module writes the merged daemon.json" \
+    '{"insecure-registries":["10.0.0.42:5000"],"log-driver":"local","registry-mirrors":["http://10.0.0.42:5000"]}' \
+    "$(_compact "$(cat "${docker_mirror_file}")")"
+  : > "${MOCK_OPERATIONS_FILE}"
+  docker_mirror_rerun="$(DOCKER_REGISTRY_MIRROR="${docker_mirror_url}" configure_docker_mirror 250)"
+  assert_contains "docker-mirror re-run reports the mirror already present" "${docker_mirror_rerun}" "already lists the mirror"
+  # shellcheck disable=SC2016  # Literal guest_file_write command line, not an expansion.
+  assert_success "docker-mirror re-run does not rewrite daemon.json" \
+    _string_lacks "$(mock_operations)" 'cat > "$1" sh '"${DOCKER_MIRROR_DAEMON_JSON}"
+  DRY_RUN=true
+  : > "${MOCK_OPERATIONS_FILE}"
+  docker_mirror_dry_run="$(configure_docker_mirror 250 --mirror https://mirror.example.com)"
+  assert_contains "docker-mirror dry run prints the intended daemon.json" "${docker_mirror_dry_run}" '"https://mirror.example.com"'
+  assert_success "docker-mirror dry run never reloads Docker" _string_lacks "$(mock_operations)" "systemctl reload"
+  unset DRY_RUN
+  assert_contains "docker-mirror with no mirror configured is a no-op" \
+    "$(DOCKER_REGISTRY_MIRROR="" configure_docker_mirror 250)" "not set"
+  # Restore the real guest_command_exists (and the mock's overrides on top).
+  unset -f guest_command_exists _compact
+  # shellcheck source=../lib/guest.sh disable=SC1091
+  source "${ROOT_DIR}/lib/guest.sh"
+  # shellcheck source=helpers/mock-backend.sh disable=SC1091
+  source "${TEST_DIR}/helpers/mock-backend.sh"
+else
+  printf '[SKIP] docker-mirror daemon.json merge tests (jq not installed on this machine)\n' >&2
 fi
 
 # kopia-client: the client password must never reach an argv, the
