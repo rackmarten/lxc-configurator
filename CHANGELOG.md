@@ -9,6 +9,15 @@ The version is `CONFIGURATOR_VERSION` in `configurator.sh`.
 
 ## [Unreleased]
 
+### Added
+- `docker-mirror` module: points a guest's Docker daemon at a registry
+  mirror (pull-through cache) set in `DOCKER_REGISTRY_MIRROR` or `--mirror`.
+  It merges the mirror into `/etc/docker/daemon.json` without dropping
+  existing keys, lists an `http://` mirror under `insecure-registries`,
+  reloads Docker (no restart, so running containers keep running) and checks
+  `docker info`. Runs after `docker` in the default profile and is a no-op
+  when no mirror is set.
+
 ### Changed
 - `.env.example` names foreman's own SSH key by fingerprint under
   `SSH_PUBLIC_KEY`, so a new container authorizes it next to the operator's
