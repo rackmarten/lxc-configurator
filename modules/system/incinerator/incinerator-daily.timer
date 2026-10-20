@@ -1,4 +1,4 @@
-# Installed by lxc-configurator's incinerator module (pinboard #447).
+# Installed by lxc-configurator's incinerator module.
 [Unit]
 Description=incinerator daily disk cleanup
 

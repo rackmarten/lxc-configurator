@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # incinerator: local disk cleanup, installed on every LXC by lxc-configurator's
-# `incinerator` module (pinboard #447). Run by two systemd timers:
+# `incinerator` module. Run by two systemd timers:
 #   incinerator-daily.timer     --daily     03:30 + up to 45m random delay
 #   incinerator-pressure.timer  --pressure  every 15 minutes, only acts when
 #                                           usage >= the policy threshold
