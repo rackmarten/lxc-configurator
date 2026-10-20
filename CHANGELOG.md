@@ -10,6 +10,10 @@ The version is `CONFIGURATOR_VERSION` in `configurator.sh`.
 ## [Unreleased]
 
 ### Added
+- `incinerator` policy key `mount` (default `/`): the filesystem whose usage
+  the pressure pass compares with `threshold`, also logged as `mount`. Lets a
+  WSL distro measure the Windows drive its virtual disk grows on instead of
+  the virtual disk itself.
 - `docker-mirror` module: points a guest's Docker daemon at a registry
   mirror (pull-through cache) set in `DOCKER_REGISTRY_MIRROR` or `--mirror`.
   It merges the mirror into `/etc/docker/daemon.json` without dropping

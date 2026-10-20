@@ -691,7 +691,7 @@ journalctl -t incinerator          # one JSON line per run: usage before/after, 
 
 The `alloy` module labels these lines `syslog_identifier="incinerator"` in Loki, so an alert can select on them (for example, one that fires when a host's cleanup has gone silent).
 
-`--pressure` does nothing unless `/` usage is at or above the policy threshold. The per-host policy is `/app/.homelab/incinerator.json` (built-in defaults without it; an invalid file burns nothing). `DEFAULT_POLICY` near the top of `modules/system/incinerator/incinerator` shows every policy key. Tests: `node --test tests/incinerator.test.mjs`.
+`--pressure` does nothing unless usage of the policy's `mount` (default `/`) is at or above the policy threshold. A WSL distro, whose `/` is a dynamically growing virtual disk, sets `mount` to the Windows drive holding that disk (`/mnt/c`). The per-host policy is `/app/.homelab/incinerator.json` (built-in defaults without it; an invalid file burns nothing). `DEFAULT_POLICY` near the top of `modules/system/incinerator/incinerator` shows every policy key. Tests: `node --test tests/incinerator.test.mjs`.
 
 ## Secrets Guard
 
