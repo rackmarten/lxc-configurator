@@ -22,7 +22,7 @@ function run(args, { policy, usage = 90, stopped = [], volumes = [] } = {}) {
     chmodSync(join(bin, name), 0o755);
   };
   const record = (file) => `printf '%s\\n' "$@" >> "${join(dir, file)}"; echo --- >> "${join(dir, file)}"`;
-  stub("df", `echo "Filesystem 1024-blocks Used Available Capacity Mounted on"; echo "/dev/x 100 ${usage} 10 ${usage}% /"`);
+  stub("df", `${record("df.log")}\necho "Filesystem 1024-blocks Used Available Capacity Mounted on"; echo "/dev/x 100 ${usage} 10 ${usage}% /"`);
   stub("journalctl", `${record("journalctl.log")}\necho "Vacuuming done, freed 16.0M of archived journals from /var/log/journal." >&2`);
   {
     const inspect = stopped.map((c) => `${c.id} ${c.finished.toISOString()} ${c.size}`).join("\n");
@@ -46,7 +46,7 @@ esac`);
   const read = (f) => (existsSync(join(dir, f)) ? readFileSync(join(dir, f), "utf8") : "");
   const calls = (f) => read(f).split("---\n").filter(Boolean).map((c) => c.trimEnd().split("\n"));
   const lines = res.stdout.trim().split("\n").filter(Boolean);
-  return { dir, code: res.status, stderr: res.stderr, lines, log: lines.length ? JSON.parse(lines.at(-1)) : null, docker: calls("docker.log"), journalctl: calls("journalctl.log") };
+  return { dir, code: res.status, stderr: res.stderr, lines, log: lines.length ? JSON.parse(lines.at(-1)) : null, docker: calls("docker.log"), journalctl: calls("journalctl.log"), df: calls("df.log") };
 }
 
 const has = (calls, ...argv) => calls.some((c) => argv.every((a, i) => c[i] === a));
@@ -116,6 +116,20 @@ test("pressure below the threshold does nothing", () => {
   assert.equal(r.log.usageBefore, 70);
   const at = run(["--pressure"], { usage: 80, policy: { version: 1, threshold: 80 } });
   assert.ok(at.docker.length > 0, "acts at exactly the threshold");
+});
+
+test("mount: usage is measured on the policy's mount, / by default", () => {
+  const def = run(["--pressure"], { usage: 70 });
+  assert.equal(def.log.mount, "/");
+  assert.ok(def.df.length > 0 && def.df.every((c) => c.at(-1) === "/"));
+  const r = run(["--pressure"], { usage: 95, policy: { version: 1, mount: "/mnt/c" } });
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(r.log.mount, "/mnt/c");
+  assert.ok(r.df.length > 0 && r.df.every((c) => c.at(-1) === "/mnt/c"));
+  assert.ok(r.docker.length > 0, "acts on the mount's usage");
+  const bad = run(["--daily"], { policy: { version: 1, mount: "mnt/c" } });
+  assert.equal(bad.code, 2);
+  assert.deepEqual(bad.docker, []);
 });
 
 test("anonymous volumes only when enabled; named volumes never", () => {

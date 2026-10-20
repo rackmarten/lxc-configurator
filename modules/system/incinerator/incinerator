@@ -4,7 +4,7 @@
 # `incinerator` module (pinboard #447). Run by two systemd timers:
 #   incinerator-daily.timer     --daily     03:30 + up to 45m random delay
 #   incinerator-pressure.timer  --pressure  every 15 minutes, only acts when
-#                                           / usage >= the policy threshold
+#                                           usage >= the policy threshold
 #
 # Policy: /app/.homelab/incinerator.json (INCINERATOR_POLICY overrides the
 # path), else built-in defaults. An invalid policy file burns nothing.
@@ -15,7 +15,7 @@ set -Eeuo pipefail
 
 POLICY_FILE="${INCINERATOR_POLICY:-/app/.homelab/incinerator.json}"
 LOCK_FILE="${INCINERATOR_LOCK:-/run/incinerator.lock}"
-DEFAULT_POLICY='{"version":1,"threshold":85,"docker":{"images":true,"buildCache":true,"stoppedContainers":true,"anonymousVolumes":false},"journald":null,"apt":false,"paths":[]}'
+DEFAULT_POLICY='{"version":1,"threshold":85,"mount":"/","docker":{"images":true,"buildCache":true,"stoppedContainers":true,"anonymousVolumes":false},"journald":null,"apt":false,"paths":[]}'
 
 pass=""
 dry_run=false
@@ -43,8 +43,9 @@ done
 say() { if [[ "${verbose}" == true ]]; then echo "incinerator: $*" >&2; fi; }
 fail() { errors+=("$*"); echo "incinerator: error: $*" >&2; }
 
-# Percentage of / in use.
-usage_pct() { df -P / | awk 'NR == 2 { sub("%", "", $5); print $5 }'; }
+# Percentage of the policy's mount in use (/ unless the policy says otherwise,
+# e.g. the Windows drive holding a WSL distro's virtual disk).
+usage_pct() { df -P "${mount:-/}" | awk 'NR == 2 { sub("%", "", $5); print $5 }'; }
 
 # "1.5GB" (docker, decimal) or "16.0M" (journalctl, binary) -> bytes.
 to_bytes() {
@@ -66,12 +67,13 @@ emit() {
     --arg pass "${pass}" \
     --argjson dryRun "${dry_run}" \
     --arg policy "${policy_source:-none}" \
+    --arg mount "${mount:-/}" \
     --arg before "${before:-}" \
     --arg after "${after}" \
     --argjson extra "${extra}" \
     --argjson freed "$(for k in "${!freed[@]}"; do printf '%s\t%s\n' "${k}" "${freed[${k}]}"; done |
       jq -R -n '[inputs | split("\t") | {(.[0]): (.[1] | tonumber)}] | add')" \
-    '{pass: $pass, dryRun: $dryRun, policy: $policy,
+    '{pass: $pass, dryRun: $dryRun, policy: $policy, mount: $mount,
       usageBefore: ($before | tonumber? // null), usageAfter: ($after | tonumber? // null),
       freedBytes: $freed, freedTotal: ($freed | add), errors: $ARGS.positional} + $extra' \
     --args ${errors[@]+"${errors[@]}"}
@@ -83,6 +85,7 @@ VALIDATE='
   def num: type == "number" and . >= 0;
   type == "object" and .version == 1
   and (.threshold | type == "number" and . > 0 and . <= 100)
+  and (.mount | type == "string" and startswith("/"))
   and (.docker | type == "object" and all(.[]; type == "boolean"))
   and (.journald == null or (.journald | type == "string" and test("^[0-9]+[KMG]$")))
   and (.apt | type == "boolean")
@@ -105,6 +108,7 @@ else
   policy="${DEFAULT_POLICY}"
 fi
 pol() { jq -r "$1" <<<"${policy}"; }
+mount="$(pol .mount)"
 
 exec 9>"${LOCK_FILE}"
 if ! flock -n 9; then
@@ -118,7 +122,7 @@ if [[ "${pass}" == pressure ]] && (( before < threshold )); then
   emit "${before}" "{\"skipped\":true,\"threshold\":${threshold}}"
   exit 0
 fi
-say "${pass} pass, / at ${before}%, policy ${policy_source}"
+say "${pass} pass, ${mount} at ${before}%, policy ${policy_source}"
 
 # run <category> <cmd...>: leaves the command's output in $out. Not run in a
 # subshell, so a failure lands in errors[].
